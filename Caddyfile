@@ -21,6 +21,9 @@ https://localhost {
 	}
 
 	handle /api/* {
+		tracing {
+			span caddy.api
+		}
 		reverse_proxy 127.0.0.1:3000
 	}
 

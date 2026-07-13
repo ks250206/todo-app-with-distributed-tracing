@@ -14,6 +14,10 @@ datasources:
           matcherRegex: '"trace_id":"([0-9a-f]{32})"'
           datasourceUid: jaeger
           url: '$${__value.raw}'
+        - name: Caddy TraceID
+          matcherRegex: '"traceID":"([0-9a-f]{32})"'
+          datasourceUid: jaeger
+          url: '$${__value.raw}'
 
   - name: Prometheus
     uid: prometheus

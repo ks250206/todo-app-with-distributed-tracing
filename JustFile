@@ -15,7 +15,7 @@ dev-start:
   nohup sh -c 'cd "$1" && exec ./target/release/axum-otel-crud' sh "{{justfile_directory()}}/backend" > "{{justfile_directory()}}/.run/logs/backend.json" 2>&1 & echo $! > "{{justfile_directory()}}/.run/backend.pid"
   for _ in $(seq 1 30); do test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/me)" = 401 && break; sleep 1; done; test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/me)" = 401 || { tail -n 100 "{{justfile_directory()}}/.run/logs/backend.json" >&2; exit 1; }
   cd "{{justfile_directory()}}/frontend" && vp build
-  if test -f "{{justfile_directory()}}/.run/caddy.pid" && kill -0 "$(cat "{{justfile_directory()}}/.run/caddy.pid")" 2>/dev/null; then OBSERVABILITY_GATEWAY_SECRET="$(cat "{{justfile_directory()}}/.run/observability-gateway-secret")" caddy reload --config "{{justfile_directory()}}/Caddyfile"; else rm -f "{{justfile_directory()}}/.run/caddy.pid"; OBSERVABILITY_GATEWAY_SECRET="$(cat "{{justfile_directory()}}/.run/observability-gateway-secret")" caddy start --config "{{justfile_directory()}}/Caddyfile" --pidfile "{{justfile_directory()}}/.run/caddy.pid" > "{{justfile_directory()}}/.run/caddy.log" 2>&1; fi
+  if test -f "{{justfile_directory()}}/.run/caddy.pid" && kill -0 "$(cat "{{justfile_directory()}}/.run/caddy.pid")" 2>/dev/null; then OTEL_SERVICE_NAME=caddy OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf OBSERVABILITY_GATEWAY_SECRET="$(cat "{{justfile_directory()}}/.run/observability-gateway-secret")" caddy reload --config "{{justfile_directory()}}/Caddyfile"; else rm -f "{{justfile_directory()}}/.run/caddy.pid"; OTEL_SERVICE_NAME=caddy OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf OBSERVABILITY_GATEWAY_SECRET="$(cat "{{justfile_directory()}}/.run/observability-gateway-secret")" caddy start --config "{{justfile_directory()}}/Caddyfile" --pidfile "{{justfile_directory()}}/.run/caddy.pid" > "{{justfile_directory()}}/.run/caddy.log" 2>&1; fi
   for _ in $(seq 1 30); do test "$(curl -k -s -o /dev/null -w '%{http_code}' https://localhost/api/me)" = 401 && break; sleep 1; done; test "$(curl -k -s -o /dev/null -w '%{http_code}' https://localhost/api/me)" = 401 || { tail -n 100 "{{justfile_directory()}}/.run/caddy.log" >&2; exit 1; }
   echo "Frontend: https://localhost/"
   echo "API: https://localhost/api/"
@@ -59,7 +59,7 @@ run-frontend-dev:
   cd frontend && vp dev
 
 caddy-run:
-  OBSERVABILITY_GATEWAY_SECRET="$(cat {{justfile_directory()}}/.run/observability-gateway-secret)" caddy run --config {{justfile_directory()}}/Caddyfile
+  OTEL_SERVICE_NAME=caddy OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf OBSERVABILITY_GATEWAY_SECRET="$(cat {{justfile_directory()}}/.run/observability-gateway-secret)" caddy run --config {{justfile_directory()}}/Caddyfile
 
 caddy-validate:
   OBSERVABILITY_GATEWAY_SECRET=validation caddy validate --config {{justfile_directory()}}/Caddyfile
