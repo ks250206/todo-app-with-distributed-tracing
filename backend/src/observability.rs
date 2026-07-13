@@ -27,7 +27,13 @@ pub fn init_tracing() -> anyhow::Result<SdkTracerProvider> {
         .with(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,sqlx=warn")),
         )
-        .with(tracing_subscriber::fmt::layer())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .json()
+                .flatten_event(true)
+                .with_current_span(true)
+                .with_span_list(true),
+        )
         .with(tracing_opentelemetry::layer().with_tracer(tracer))
         .try_init()
         .context("failed to initialize tracing subscriber")?;

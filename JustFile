@@ -6,14 +6,14 @@ start:
 
 dev-start:
   test -n "${PASSWORD_PEPPER:-}" || { test -f "{{justfile_directory()}}/backend/.env" && grep -Eq '^(export )?PASSWORD_PEPPER=.+' "{{justfile_directory()}}/backend/.env"; } || { echo "backend/.env または環境変数で PASSWORD_PEPPER を設定してください" >&2; exit 1; }
-  mkdir -p "{{justfile_directory()}}/.run/logs" "{{justfile_directory()}}/.run/otelcol/caddy"
-  chmod 0777 "{{justfile_directory()}}/.run/otelcol/caddy"
+  mkdir -p "{{justfile_directory()}}/.run/logs" "{{justfile_directory()}}/.run/otelcol/logs"
+  chmod 0777 "{{justfile_directory()}}/.run/otelcol/logs"
   if ! test -s "{{justfile_directory()}}/.run/observability-gateway-secret"; then umask 077; openssl rand -hex 32 > "{{justfile_directory()}}/.run/observability-gateway-secret"; fi
   just jaeger-start
   just backend-stop
   cd "{{justfile_directory()}}/backend" && cargo build --release
-  nohup sh -c 'cd "$1" && exec ./target/release/axum-otel-crud' sh "{{justfile_directory()}}/backend" > "{{justfile_directory()}}/.run/backend.log" 2>&1 & echo $! > "{{justfile_directory()}}/.run/backend.pid"
-  for _ in $(seq 1 30); do test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/me)" = 401 && break; sleep 1; done; test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/me)" = 401 || { tail -n 100 "{{justfile_directory()}}/.run/backend.log" >&2; exit 1; }
+  nohup sh -c 'cd "$1" && exec ./target/release/axum-otel-crud' sh "{{justfile_directory()}}/backend" > "{{justfile_directory()}}/.run/logs/backend.json" 2>&1 & echo $! > "{{justfile_directory()}}/.run/backend.pid"
+  for _ in $(seq 1 30); do test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/me)" = 401 && break; sleep 1; done; test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/me)" = 401 || { tail -n 100 "{{justfile_directory()}}/.run/logs/backend.json" >&2; exit 1; }
   cd "{{justfile_directory()}}/frontend" && vp build
   if test -f "{{justfile_directory()}}/.run/caddy.pid" && kill -0 "$(cat "{{justfile_directory()}}/.run/caddy.pid")" 2>/dev/null; then OBSERVABILITY_GATEWAY_SECRET="$(cat "{{justfile_directory()}}/.run/observability-gateway-secret")" caddy reload --config "{{justfile_directory()}}/Caddyfile"; else rm -f "{{justfile_directory()}}/.run/caddy.pid"; OBSERVABILITY_GATEWAY_SECRET="$(cat "{{justfile_directory()}}/.run/observability-gateway-secret")" caddy start --config "{{justfile_directory()}}/Caddyfile" --pidfile "{{justfile_directory()}}/.run/caddy.pid" > "{{justfile_directory()}}/.run/caddy.log" 2>&1; fi
   for _ in $(seq 1 30); do test "$(curl -k -s -o /dev/null -w '%{http_code}' https://localhost/api/me)" = 401 && break; sleep 1; done; test "$(curl -k -s -o /dev/null -w '%{http_code}' https://localhost/api/me)" = 401 || { tail -n 100 "{{justfile_directory()}}/.run/caddy.log" >&2; exit 1; }
@@ -21,6 +21,7 @@ dev-start:
   echo "API: https://localhost/api/"
   echo "Jaeger: https://localhost/jaeger/"
   echo "Prometheus: https://localhost/prometheus/"
+  echo "Grafana: https://localhost/grafana/"
 
 stop:
   just dev-stop
@@ -49,7 +50,7 @@ dev-status:
   test -f "{{justfile_directory()}}/.run/backend.pid" && kill -0 "$(cat "{{justfile_directory()}}/.run/backend.pid")" 2>/dev/null && echo "backend: running" || echo "backend: stopped"
   test -f "{{justfile_directory()}}/frontend/dist/index.html" && echo "frontend: built" || echo "frontend: not built"
   test -f "{{justfile_directory()}}/.run/caddy.pid" && kill -0 "$(cat "{{justfile_directory()}}/.run/caddy.pid")" 2>/dev/null && echo "caddy: running" || echo "caddy: stopped"
-  podman ps --filter name=jaeger --filter name=otel-collector --filter name=prometheus --filter name=observability-gateway
+  podman ps --filter name=jaeger --filter name=otel-collector --filter name=prometheus --filter name=loki --filter name=grafana --filter name=alloy --filter name=observability-gateway
 
 run-server-dev:
   cd backend && cargo run
@@ -65,11 +66,21 @@ caddy-validate:
   OBSERVABILITY_GATEWAY_SECRET=validation OBSERVABILITY_CADDY_ACCESS_LOG={{justfile_directory()}}/.run/logs/observability-gateway-access.json caddy validate --adapter caddyfile --config {{justfile_directory()}}/observability-Caddyfile
 
 jaeger-start:
-  mkdir -p "{{justfile_directory()}}/.run/logs" "{{justfile_directory()}}/.run/otelcol/caddy"
-  chmod 0777 "{{justfile_directory()}}/.run/otelcol/caddy"
+  mkdir -p "{{justfile_directory()}}/.run/logs" "{{justfile_directory()}}/.run/otelcol/logs"
+  chmod 0777 "{{justfile_directory()}}/.run/otelcol/logs"
   if ! test -s "{{justfile_directory()}}/.run/observability-gateway-secret"; then umask 077; openssl rand -hex 32 > "{{justfile_directory()}}/.run/observability-gateway-secret"; fi
   podman network exists crudwithotel-observability || podman network create crudwithotel-observability
-  podman rm -f jaeger otel-collector prometheus observability-gateway 2>/dev/null || true
+  podman volume exists crudwithotel-loki-data || podman volume create crudwithotel-loki-data
+  podman volume exists crudwithotel-grafana-data || podman volume create crudwithotel-grafana-data
+  podman volume exists crudwithotel-alloy-data || podman volume create crudwithotel-alloy-data
+  podman rm -f jaeger otel-collector prometheus loki grafana alloy observability-gateway 2>/dev/null || true
+  podman run --rm -d \
+    --name loki \
+    --network crudwithotel-observability \
+    -v "{{justfile_directory()}}/loki-config.yaml:/etc/loki/local-config.yaml:ro" \
+    -v crudwithotel-loki-data:/loki \
+    grafana/loki:3.6.3 \
+    -config.file=/etc/loki/local-config.yaml
   podman run --rm -d \
     --name prometheus \
     --network crudwithotel-observability \
@@ -91,14 +102,6 @@ jaeger-start:
     jaegertracing/all-in-one:1.76.0 \
     --query.base-path=/jaeger
   podman run --rm -d \
-    --name observability-gateway \
-    --network crudwithotel-observability \
-    -v "{{justfile_directory()}}/observability-Caddyfile:/etc/caddy/Caddyfile:ro" \
-    -v "{{justfile_directory()}}/.run/logs:/var/log/crudwithotel" \
-    -e OBSERVABILITY_GATEWAY_SECRET="$(cat "{{justfile_directory()}}/.run/observability-gateway-secret")" \
-    -p 127.0.0.1:18080:8080 \
-    caddy:2.10.2
-  podman run --rm -d \
     --name otel-collector \
     --network crudwithotel-observability \
     -v "{{justfile_directory()}}/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro" \
@@ -109,9 +112,37 @@ jaeger-start:
     -p 127.0.0.1:8889:8889 \
     otel/opentelemetry-collector-contrib:0.120.0 \
     --config=/etc/otelcol-contrib/config.yaml
+  podman run --rm -d \
+    --name alloy \
+    --network crudwithotel-observability \
+    -v "{{justfile_directory()}}/alloy-config.alloy:/etc/alloy/config.alloy:ro" \
+    -v crudwithotel-alloy-data:/var/lib/alloy/data \
+    -p 127.0.0.1:12347:12347 \
+    grafana/alloy:v1.12.2 \
+    run --server.http.listen-addr=0.0.0.0:12345 --storage.path=/var/lib/alloy/data /etc/alloy/config.alloy
+  podman run --rm -d \
+    --name grafana \
+    --network crudwithotel-observability \
+    -v "{{justfile_directory()}}/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro" \
+    -v crudwithotel-grafana-data:/var/lib/grafana \
+    -e GF_SERVER_ROOT_URL=https://localhost/grafana/ \
+    -e GF_SERVER_SERVE_FROM_SUB_PATH=true \
+    -e GF_AUTH_ANONYMOUS_ENABLED=true \
+    -e GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer \
+    -e GF_AUTH_DISABLE_LOGIN_FORM=true \
+    -e GF_USERS_DEFAULT_THEME=light \
+    grafana/grafana:12.3.3
+  podman run --rm -d \
+    --name observability-gateway \
+    --network crudwithotel-observability \
+    -v "{{justfile_directory()}}/observability-Caddyfile:/etc/caddy/Caddyfile:ro" \
+    -v "{{justfile_directory()}}/.run/logs:/var/log/crudwithotel" \
+    -e OBSERVABILITY_GATEWAY_SECRET="$(cat "{{justfile_directory()}}/.run/observability-gateway-secret")" \
+    -p 127.0.0.1:18080:8080 \
+    caddy:2.10.2
 
 jaeger-stop:
-  podman stop jaeger otel-collector prometheus observability-gateway 2>/dev/null || true
+  podman stop jaeger otel-collector prometheus loki grafana alloy observability-gateway 2>/dev/null || true
 
 jaeger-logs:
   podman logs -f jaeger
@@ -121,3 +152,12 @@ otel-collector-logs:
 
 prometheus-logs:
   podman logs -f prometheus
+
+loki-logs:
+  podman logs -f loki
+
+grafana-logs:
+  podman logs -f grafana
+
+alloy-logs:
+  podman logs -f alloy

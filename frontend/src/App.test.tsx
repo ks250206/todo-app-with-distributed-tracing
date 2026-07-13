@@ -85,6 +85,7 @@ describe("App", () => {
       "href",
       "/prometheus/",
     );
+    expect(screen.getByRole("link", { name: /Grafana/ })).toHaveAttribute("href", "/grafana/");
   });
 
   test("redirects to the login page after logout", async () => {

@@ -302,6 +302,12 @@ function Dashboard({ session }: { session: Session }) {
                 >
                   <span>◫</span> Prometheus
                 </a>
+                <a
+                  className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+                  href="/grafana/"
+                >
+                  <span>◩</span> Grafana
+                </a>
               </>
             )}
             <span className="flex items-center gap-3 px-3 py-2.5 text-slate-400">

@@ -1,0 +1,33 @@
+faro.receiver "frontend" {
+  server {
+    listen_address = "0.0.0.0"
+    listen_port    = 12347
+
+    rate_limiting {
+      enabled    = true
+      rate       = 20
+      burst_size = 40
+      strategy   = "per_app"
+    }
+  }
+
+  sourcemaps {
+    download = false
+  }
+
+  extra_log_labels = {
+    service_name      = "todo-frontend",
+    service_namespace = "edge-tasks",
+  }
+  log_format = "json"
+
+  output {
+    logs = [loki.write.local.receiver]
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

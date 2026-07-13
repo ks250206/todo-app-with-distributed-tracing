@@ -10,7 +10,7 @@ receivers:
       - /var/log/crudwithotel/caddy-access.json
       - /var/log/crudwithotel/observability-gateway-access.json
     start_at: beginning
-    storage: file_storage/caddy
+    storage: file_storage/logs
     include_file_name: true
     include_file_path: true
     operators:
@@ -29,10 +29,33 @@ receivers:
       - type: add
         field: resource["service.namespace"]
         value: edge-tasks
+  filelog/backend:
+    include:
+      - /var/log/crudwithotel/backend.json
+    start_at: beginning
+    storage: file_storage/logs
+    include_file_name: true
+    include_file_path: true
+    operators:
+      - type: json_parser
+        id: parse_backend_json
+        parse_to: body
+        timestamp:
+          parse_from: body.timestamp
+          layout_type: gotime
+          layout: '2006-01-02T15:04:05.999999999Z07:00'
+        severity:
+          parse_from: body.level
+      - type: add
+        field: resource["service.name"]
+        value: axum-crud
+      - type: add
+        field: resource["service.namespace"]
+        value: edge-tasks
 
 extensions:
-  file_storage/caddy:
-    directory: /var/lib/otelcol/caddy
+  file_storage/logs:
+    directory: /var/lib/otelcol/logs
     create_directory: true
 
 connectors:
@@ -49,15 +72,17 @@ exporters:
       insecure: true
   prometheus:
     endpoint: 0.0.0.0:8889
-  debug/caddy:
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+  debug/logs:
     verbosity: detailed
 
 processors:
-  batch/caddy_logs:
+  batch/logs:
     timeout: 1s
 
 service:
-  extensions: [file_storage/caddy]
+  extensions: [file_storage/logs]
   telemetry:
     metrics:
       level: normal
@@ -74,7 +99,7 @@ service:
     metrics:
       receivers: [spanmetrics]
       exporters: [prometheus]
-    logs/caddy:
-      receivers: [filelog/caddy]
-      processors: [batch/caddy_logs]
-      exporters: [debug/caddy]
+    logs/application:
+      receivers: [filelog/caddy, filelog/backend]
+      processors: [batch/logs]
+      exporters: [otlphttp/loki, debug/logs]

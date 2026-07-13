@@ -6,7 +6,10 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use opentelemetry::{global, trace::Status};
+use opentelemetry::{
+    global,
+    trace::{Status, TraceContextExt},
+};
 use opentelemetry_http::HeaderExtractor;
 use serde::{Deserialize, Serialize};
 use tracing::{Instrument, field};
@@ -361,6 +364,7 @@ fn cookie_header(name: &str, value: &str, max_age: i64, path: &str) -> HeaderVal
 }
 
 async fn http_trace(req: Request, next: Next) -> Response {
+    let started_at = std::time::Instant::now();
     let method = req.method().clone();
     let url_path = req.uri().path().to_owned();
     let route = req
@@ -377,10 +381,15 @@ async fn http_trace(req: Request, next: Next) -> Response {
     let parent_context = global::get_text_map_propagator(|propagator| {
         propagator.extract(&HeaderExtractor(req.headers()))
     });
-    let span = tracing::info_span!("http.server", otel.name = %span_name, otel.kind = "server", "http.request.method" = %method, "http.route" = %route, "url.path" = %url_path, "url.scheme" = "https", "http.response.status_code" = field::Empty, "error.type" = field::Empty);
+    let span = tracing::info_span!("http.server", otel.name = %span_name, otel.kind = "server", trace_id = field::Empty, span_id = field::Empty, "http.request.method" = %method, "http.route" = %route, "url.path" = %url_path, "url.scheme" = "https", "http.response.status_code" = field::Empty, "error.type" = field::Empty);
     if let Err(error) = span.set_parent(parent_context) {
         tracing::warn!(%error, "failed to set remote trace parent");
     }
+    let otel_context = span.context();
+    let otel_span = otel_context.span();
+    let span_context = otel_span.span_context();
+    span.record("trace_id", span_context.trace_id().to_string());
+    span.record("span_id", span_context.span_id().to_string());
     let response = next.run(req).instrument(span.clone()).await;
     let status = response.status();
     span.record("http.response.status_code", status.as_u16() as u64);
@@ -389,5 +398,12 @@ async fn http_trace(req: Request, next: Next) -> Response {
         span.set_attribute("error.type", error_type.clone());
         span.set_status(Status::error(error_type));
     }
+    span.in_scope(|| {
+        tracing::info!(
+            "http.response.status_code" = status.as_u16(),
+            duration_ms = started_at.elapsed().as_secs_f64() * 1_000.0,
+            "request completed"
+        );
+    });
     response
 }

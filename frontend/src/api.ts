@@ -1,4 +1,5 @@
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import { reportFrontendError } from "./frontend-observability";
 import { normalizeApiRoute } from "./http-route";
 
 export type Session = { id: number; email?: string; role?: "admin" | "user" };
@@ -116,6 +117,7 @@ export function tracedMutation<T>(name: string, operation: () => Promise<T>): Pr
           code: SpanStatusCode.ERROR,
           message: error instanceof Error ? error.message : String(error),
         });
+        reportFrontendError(error, name);
         throw error;
       } finally {
         span.end();

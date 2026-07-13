@@ -31,6 +31,13 @@ https://localhost {
 		reverse_proxy 127.0.0.1:4318
 	}
 
+	handle_path /faro/* {
+		forward_auth 127.0.0.1:3000 {
+			uri /api/internal/session-auth
+		}
+		reverse_proxy 127.0.0.1:12347
+	}
+
 	redir /jaeger /jaeger/ 308
 	handle /jaeger/* {
 		forward_auth 127.0.0.1:3000 {
@@ -43,6 +50,16 @@ https://localhost {
 
 	redir /prometheus /prometheus/ 308
 	handle /prometheus/* {
+		forward_auth 127.0.0.1:3000 {
+			uri /api/internal/admin-auth
+		}
+		reverse_proxy 127.0.0.1:18080 {
+			header_up X-Observability-Gateway-Token {$OBSERVABILITY_GATEWAY_SECRET}
+		}
+	}
+
+	redir /grafana /grafana/ 308
+	handle /grafana/* {
 		forward_auth 127.0.0.1:3000 {
 			uri /api/internal/admin-auth
 		}
