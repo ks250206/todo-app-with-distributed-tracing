@@ -1,6 +1,5 @@
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import { reportFrontendError } from "./frontend-observability";
-import { normalizeApiRoute } from "./http-route";
 
 export type Session = { id: number; email?: string; role?: "admin" | "user" };
 export type Todo = {
@@ -47,62 +46,24 @@ async function refreshSession(): Promise<boolean> {
 }
 
 async function request<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
-  const method = (init.method ?? "GET").toUpperCase();
-  const route = normalizeApiRoute(path);
-  const urlPath = path.split("?")[0] ?? path;
+  const headers = new Headers(init.headers);
+  if (init.body) headers.set("content-type", "application/json");
+  const response = await fetch(path, {
+    ...init,
+    credentials: "include",
+    headers,
+  });
 
-  // SERVER kind so Jaeger Monitor (default span_kind filter) includes todo-frontend RED metrics.
-  return trace.getTracer("todo-frontend").startActiveSpan(
-    `${method} ${route}`,
-    {
-      kind: SpanKind.SERVER,
-      attributes: {
-        "http.request.method": method,
-        "http.route": route,
-        "url.path": urlPath,
-        "url.scheme": "https",
-      },
-    },
-    async (span) => {
-      try {
-        const headers = new Headers(init.headers);
-        if (init.body) headers.set("content-type", "application/json");
-        const response = await fetch(path, {
-          ...init,
-          credentials: "include",
-          headers,
-        });
-
-        span.setAttribute("http.response.status_code", response.status);
-
-        if (response.status === 401 && retry && !path.startsWith("/api/auth/")) {
-          if (await refreshSession()) return request<T>(path, init, false);
-        }
-        if (response.status === 401 && !path.startsWith("/api/auth/")) unauthorizedHandler?.();
-        if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as { error?: string } | null;
-          if (response.status >= 500) {
-            span.setAttribute("error.type", String(response.status));
-            span.setStatus({ code: SpanStatusCode.ERROR, message: String(response.status) });
-          }
-          throw new ApiError(response.status, body?.error ?? `Request failed (${response.status})`);
-        }
-        if (response.status === 204) return undefined as T;
-        return response.json() as Promise<T>;
-      } catch (error) {
-        if (!(error instanceof ApiError)) {
-          span.recordException(error instanceof Error ? error : String(error));
-          span.setStatus({
-            code: SpanStatusCode.ERROR,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
-        throw error;
-      } finally {
-        span.end();
-      }
-    },
-  );
+  if (response.status === 401 && retry && !path.startsWith("/api/auth/")) {
+    if (await refreshSession()) return request<T>(path, init, false);
+  }
+  if (response.status === 401 && !path.startsWith("/api/auth/")) unauthorizedHandler?.();
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new ApiError(response.status, body?.error ?? `Request failed (${response.status})`);
+  }
+  if (response.status === 204) return undefined as T;
+  return response.json() as Promise<T>;
 }
 
 export function tracedMutation<T>(name: string, operation: () => Promise<T>): Promise<T> {
