@@ -1,0 +1,36 @@
+:8080 {
+	log {
+		output file {$OBSERVABILITY_CADDY_ACCESS_LOG:/var/log/crudwithotel/observability-gateway-access.json} {
+			mode 0644
+			roll_size 10MiB
+			roll_keep 5
+			roll_keep_for 168h
+		}
+		format filter {
+			request>headers delete
+			resp_headers delete
+			request>uri regexp \?.*$ ""
+			request>remote_ip ip_mask 24 64
+			request>client_ip ip_mask 24 64
+			wrap json
+		}
+	}
+
+	@gatewayAuthorized header X-Observability-Gateway-Token {$OBSERVABILITY_GATEWAY_SECRET}
+
+	handle @gatewayAuthorized {
+		handle /jaeger/* {
+			reverse_proxy jaeger:16686 {
+				header_up -X-Observability-Gateway-Token
+			}
+		}
+
+		handle /prometheus/* {
+			reverse_proxy prometheus:9090 {
+				header_up -X-Observability-Gateway-Token
+			}
+		}
+	}
+
+	respond "Forbidden" 403
+}

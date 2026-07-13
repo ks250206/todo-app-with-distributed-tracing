@@ -1,0 +1,5 @@
+/target
+/backend/target
+/backend/app.db
+/backend/.env
+/.run

@@ -1,0 +1,80 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  filelog/caddy:
+    include:
+      - /var/log/crudwithotel/caddy-access.json
+      - /var/log/crudwithotel/observability-gateway-access.json
+    start_at: beginning
+    storage: file_storage/caddy
+    include_file_name: true
+    include_file_path: true
+    operators:
+      - type: json_parser
+        id: parse_caddy_json
+        parse_to: body
+        timestamp:
+          parse_from: body.ts
+          layout_type: epoch
+          layout: s
+        severity:
+          parse_from: body.level
+      - type: add
+        field: resource["service.name"]
+        value: caddy
+      - type: add
+        field: resource["service.namespace"]
+        value: edge-tasks
+
+extensions:
+  file_storage/caddy:
+    directory: /var/lib/otelcol/caddy
+    create_directory: true
+
+connectors:
+  spanmetrics:
+    metrics_flush_interval: 5s
+    histogram:
+      explicit:
+        buckets: [1ms, 2ms, 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s]
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  prometheus:
+    endpoint: 0.0.0.0:8889
+  debug/caddy:
+    verbosity: detailed
+
+processors:
+  batch/caddy_logs:
+    timeout: 1s
+
+service:
+  extensions: [file_storage/caddy]
+  telemetry:
+    metrics:
+      level: normal
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [otlp/jaeger, spanmetrics]
+    metrics:
+      receivers: [spanmetrics]
+      exporters: [prometheus]
+    logs/caddy:
+      receivers: [filelog/caddy]
+      processors: [batch/caddy_logs]
+      exporters: [debug/caddy]

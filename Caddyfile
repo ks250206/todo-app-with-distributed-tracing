@@ -1,0 +1,59 @@
+https://localhost {
+	log {
+		output file {$CADDY_ACCESS_LOG:./.run/logs/caddy-access.json} {
+			mode 0644
+			roll_size 10MiB
+			roll_keep 5
+			roll_keep_for 168h
+		}
+		format filter {
+			request>headers delete
+			resp_headers delete
+			request>uri regexp \?.*$ ""
+			request>remote_ip ip_mask 24 64
+			request>client_ip ip_mask 24 64
+			wrap json
+		}
+	}
+
+	handle /api/internal/* {
+		respond "Not Found" 404
+	}
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	handle_path /otel/* {
+		forward_auth 127.0.0.1:3000 {
+			uri /api/internal/session-auth
+		}
+		reverse_proxy 127.0.0.1:4318
+	}
+
+	redir /jaeger /jaeger/ 308
+	handle /jaeger/* {
+		forward_auth 127.0.0.1:3000 {
+			uri /api/internal/admin-auth
+		}
+		reverse_proxy 127.0.0.1:18080 {
+			header_up X-Observability-Gateway-Token {$OBSERVABILITY_GATEWAY_SECRET}
+		}
+	}
+
+	redir /prometheus /prometheus/ 308
+	handle /prometheus/* {
+		forward_auth 127.0.0.1:3000 {
+			uri /api/internal/admin-auth
+		}
+		reverse_proxy 127.0.0.1:18080 {
+			header_up X-Observability-Gateway-Token {$OBSERVABILITY_GATEWAY_SECRET}
+		}
+	}
+
+	handle {
+		root * {$FRONTEND_DIST:./frontend/dist}
+		try_files {path} /index.html
+		file_server
+	}
+}
