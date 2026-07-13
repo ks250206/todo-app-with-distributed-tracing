@@ -44,7 +44,7 @@ infrastructure ------------> domain
 - `/api/internal/*`を公開Caddy経由で公開しない。
 - `/otel/*`は有効なセッションを検証してからCollectorへ転送する。
 - `/faro/*`は有効なセッションを検証してからAlloyへ転送する。AlloyのFaro受信はコンテナ内で待ち受け、ホストへは`127.0.0.1:12347`だけを公開する。
-- パスワードはpepperを加えたArgon2idでハッシュ化し、平文やpepperをログへ出さない。
+- パスワードはHMAC-SHA-256（key=pepper）で混ぜたうえでArgon2idによりハッシュ化し、平文やpepperをログへ出さない。
 - Access TokenとRefresh TokenはDBへ平文保存せず、SHA-256ハッシュだけを保存する。
 - 認証Cookieは`Secure; HttpOnly; SameSite=Lax; Path=/`を維持する。
 - Refresh Tokenは使用時にAccess Tokenとともにローテーションする。

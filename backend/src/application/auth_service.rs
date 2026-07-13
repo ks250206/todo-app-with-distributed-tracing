@@ -8,9 +8,12 @@ use argon2::{
     password_hash::SaltString,
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use hmac::{Hmac, Mac};
 use rand::{RngCore, rngs::OsRng};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
+
+type HmacSha256 = Hmac<Sha256>;
 
 use crate::domain::{RepositoryError, Session, SessionRepository, User, UserRepository};
 
@@ -219,18 +222,27 @@ fn validate_password(password: &str) -> Result<(), ServiceError> {
     }
     Ok(())
 }
+fn pepper_password(password: &str, pepper: &str) -> Result<Vec<u8>, ServiceError> {
+    let mut mac = HmacSha256::new_from_slice(pepper.as_bytes()).map_err(|error| {
+        ServiceError::Internal(Box::new(std::io::Error::other(error.to_string())))
+    })?;
+    mac.update(password.as_bytes());
+    Ok(mac.finalize().into_bytes().to_vec())
+}
 fn hash_password(password: &str, pepper: &str) -> Result<String, ServiceError> {
+    let peppered = pepper_password(password, pepper)?;
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, Params::default());
     argon2
-        .hash_password(format!("{password}\0{pepper}").as_bytes(), &salt)
+        .hash_password(&peppered, &salt)
         .map(|hash| hash.to_string())
         .map_err(|error| ServiceError::Internal(Box::new(std::io::Error::other(error.to_string()))))
 }
 fn verify_password(password: &str, pepper: &str, hash: &str) -> Result<(), ServiceError> {
+    let peppered = pepper_password(password, pepper)?;
     let hash = PasswordHash::new(hash).map_err(|_| ServiceError::InvalidCredentials)?;
     Argon2::new(Algorithm::Argon2id, Version::V0x13, Params::default())
-        .verify_password(format!("{password}\0{pepper}").as_bytes(), &hash)
+        .verify_password(&peppered, &hash)
         .map_err(|_| ServiceError::InvalidCredentials)
 }
 fn new_tokens() -> AuthTokens {
