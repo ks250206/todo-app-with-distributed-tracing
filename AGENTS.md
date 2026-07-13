@@ -11,7 +11,8 @@
 - `otel-collector-config.yaml`: trace、spanmetrics、Backend/Caddy log pipeline
 - `alloy-config.alloy`: Frontend Faro eventの受信とLoki転送
 - `loki-config.yaml`: log保存設定
-- `grafana/provisioning/`: Loki、Prometheus、Jaeger datasource
+- `grafana/provisioning/`: datasourceとDashboard provider
+- `grafana/dashboards/`: version管理するGrafana Dashboard JSON
 - `JustFile`: 統合起動、停止、状態確認
 
 ## Backend architecture
@@ -102,6 +103,7 @@ Frontendのpackage managerはpnpmですが、操作にはVite Plusの`vp` comman
 - `/faro/collect`自身もFrontend instrumentation対象から除外し、自己計装loopを防ぐ。
 - Jaeger Monitor用のspanmetrics pipelineとPrometheus scrape設定を壊さない。
 - Grafana datasource provisioningと、LokiからJaegerへ遷移するtrace derived fieldを壊さない。
+- `Edge Tasks Overview`はfile provisioningを正とし、UI上の変更だけで管理しない。panel queryを変更した場合は実際のPrometheus/Loki labelと照合する。
 
 ## Integrated runtime
 
