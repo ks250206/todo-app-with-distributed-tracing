@@ -1,4 +1,10 @@
-import type { Faro, TransportItem } from "@grafana/faro-web-sdk";
+import type {
+  EventEvent,
+  ExceptionEvent,
+  Faro,
+  MeasurementEvent,
+  TransportItem,
+} from "@grafana/faro-web-sdk";
 
 let faroInstance: Faro | undefined;
 
@@ -11,20 +17,78 @@ export function sanitizeTelemetryUrl(rawUrl: string | undefined): string | undef
   }
 }
 
-function sanitizeItem(item: TransportItem): TransportItem {
+function looksLikeUrl(value: string): boolean {
+  return /^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(value) || value.includes("?") || value.includes("#");
+}
+
+function sanitizeAttributeValue(key: string, value: string): string {
+  if (key === "name" || /url/i.test(key) || looksLikeUrl(value)) {
+    return sanitizeTelemetryUrl(value) ?? value.split(/[?#]/, 1)[0] ?? value;
+  }
+  return value;
+}
+
+function sanitizeAttributes(
+  attributes: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!attributes) return undefined;
+  return Object.fromEntries(
+    Object.entries(attributes).map(([key, value]) => [key, sanitizeAttributeValue(key, value)]),
+  );
+}
+
+function sanitizeException(payload: ExceptionEvent): ExceptionEvent {
+  return {
+    ...payload,
+    value: payload.value ? payload.value.slice(0, 2_000) : payload.value,
+    stacktrace: payload.stacktrace
+      ? {
+          ...payload.stacktrace,
+          frames: payload.stacktrace.frames?.map((frame) => ({
+            ...frame,
+            filename: sanitizeTelemetryUrl(frame.filename) ?? frame.filename,
+          })),
+        }
+      : payload.stacktrace,
+  };
+}
+
+function sanitizeEvent(payload: EventEvent): EventEvent {
+  return {
+    ...payload,
+    attributes: sanitizeAttributes(payload.attributes),
+  };
+}
+
+function sanitizeMeasurement(payload: MeasurementEvent): MeasurementEvent {
+  return {
+    ...payload,
+    context: sanitizeAttributes(payload.context),
+  };
+}
+
+export function sanitizeItem(item: TransportItem): TransportItem {
   const page = item.meta.page
     ? { ...item.meta.page, url: sanitizeTelemetryUrl(item.meta.page.url) }
     : undefined;
   const browser = item.meta.browser ? { ...item.meta.browser, userAgent: undefined } : undefined;
-  return {
-    ...item,
-    meta: {
-      ...item.meta,
-      user: undefined,
-      page,
-      browser,
-    },
+  const meta = {
+    ...item.meta,
+    user: undefined,
+    page,
+    browser,
   };
+
+  switch (item.type) {
+    case "exception":
+      return { ...item, meta, payload: sanitizeException(item.payload as ExceptionEvent) };
+    case "event":
+      return { ...item, meta, payload: sanitizeEvent(item.payload as EventEvent) };
+    case "measurement":
+      return { ...item, meta, payload: sanitizeMeasurement(item.payload as MeasurementEvent) };
+    default:
+      return { ...item, meta };
+  }
 }
 
 async function initializeFrontendLogs(): Promise<void> {

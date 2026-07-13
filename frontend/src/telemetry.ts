@@ -11,6 +11,10 @@ import {
 } from "@opentelemetry/semantic-conventions";
 import { normalizeApiRoute } from "./http-route";
 
+declare global {
+  var __todoFrontendTelemetryInitialized: boolean | undefined;
+}
+
 function requestMethod(request: Request | RequestInit): string {
   if (request instanceof Request) return request.method.toUpperCase();
   return (request.method ?? "GET").toUpperCase();
@@ -29,6 +33,8 @@ function applyFetchRouteAttributes(
 }
 
 export function initializeTelemetry(): void {
+  if (globalThis.__todoFrontendTelemetryInitialized) return;
+
   if (import.meta.env.DEV) diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.WARN);
 
   const provider = new WebTracerProvider({
@@ -44,7 +50,7 @@ export function initializeTelemetry(): void {
     tracerProvider: provider,
     instrumentations: [
       new FetchInstrumentation({
-        ignoreUrls: [/\/otel\/v1\/traces/],
+        ignoreUrls: [/\/otel\/v1\/traces/, /\/faro\/collect/],
         propagateTraceHeaderCorsUrls: [/^https:\/\/localhost\/api\//, /^\/api\//],
         clearTimingResources: true,
         applyCustomAttributesOnSpan: (span, request, result) => {
@@ -54,4 +60,6 @@ export function initializeTelemetry(): void {
       }),
     ],
   });
+
+  globalThis.__todoFrontendTelemetryInitialized = true;
 }

@@ -13,7 +13,9 @@
 - `loki-config.yaml`: log保存設定
 - `grafana/provisioning/`: datasourceとDashboard provider
 - `grafana/dashboards/`: version管理するGrafana Dashboard JSON
-- `JustFile`: 統合起動、停止、状態確認
+- `scripts/`: `just`から呼ぶ起動・停止・observability操作スクリプト
+- `JustFile`: 統合起動、停止、状態確認の薄いラッパー
+- `flake.nix`: `nix develop`用の開発ツール環境
 
 ## Backend architecture
 
@@ -41,7 +43,7 @@ infrastructure ------------> domain
 - 公開CaddyがBackendでadmin権限を検証し、共有secretで内部gatewayへの直接アクセスを防ぐ。Jaeger、Prometheus、Grafana、Lokiのポートをホストへ直接公開しない。
 - `/api/internal/*`を公開Caddy経由で公開しない。
 - `/otel/*`は有効なセッションを検証してからCollectorへ転送する。
-- `/faro/*`は有効なセッションを検証してからAlloyへ転送し、AlloyのFaro受信ポートはloopbackだけへbindする。
+- `/faro/*`は有効なセッションを検証してからAlloyへ転送する。AlloyのFaro受信はコンテナ内で待ち受け、ホストへは`127.0.0.1:12347`だけを公開する。
 - パスワードはpepperを加えたArgon2idでハッシュ化し、平文やpepperをログへ出さない。
 - Access TokenとRefresh TokenはDBへ平文保存せず、SHA-256ハッシュだけを保存する。
 - 認証Cookieは`Secure; HttpOnly; SameSite=Lax; Path=/`を維持する。
@@ -109,13 +111,13 @@ Frontendのpackage managerはpnpmですが、操作にはVite Plusの`vp` comman
 
 ## Integrated runtime
 
-- 統合動作はリポジトリルートで`just start`を使用する。
+- 開発ツールは`nix develop`（または direnv + `use flake`）で揃える。PodmanはmacOSではホスト側インストールを使う。
+- 統合動作はリポジトリルートで`just start`を使用する。実装本体は`scripts/`に置き、`JustFile`はrecipeの入口だけを持つ。
 - `just start`はFrontendをproduction buildし、BackendをCargo release profileでbuildして、Caddy、Jaeger、Prometheus、Grafana、Loki、Alloy、Collector、内部gatewayとともに起動する。
 - Caddy変更後は両方の設定を検証する。
 
 ```sh
-caddy validate --config Caddyfile
-caddy validate --adapter caddyfile --config observability-Caddyfile
+just caddy-validate
 ```
 
 - 起動状態は`just status`、停止は`just stop`を使用する。

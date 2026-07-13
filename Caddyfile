@@ -35,6 +35,9 @@ https://localhost {
 	}
 
 	handle_path /faro/* {
+		request_body {
+			max_size 64KB
+		}
 		forward_auth 127.0.0.1:3000 {
 			uri /api/internal/session-auth
 		}
