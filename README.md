@@ -1,5 +1,4 @@
-# Edge Tasks
-
+# todo-app-with-distributed-tracing
 認証・認可、Todo CRUD、分散トレーシングを備えたフルスタックのサンプルアプリケーションです。
 
 - Backend: Rust、Axum、SQLx、SQLite
