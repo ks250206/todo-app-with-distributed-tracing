@@ -215,6 +215,115 @@ Grafanaを開くと、provision済みの`Edge Tasks Overview` Dashboardがホー
 
 Monitorではサービス`todo-frontend`（Frontend）と`axum-crud`（Backend）を選べます。FrontendのAPI spanはfetch自動計装による`client` spanであり、Monitorではspan kindを`client`へ切り替えて確認します。業務上のmutation span（例: `auth.login`）はHTTP spanの親として維持されます。Todo IDは`/api/todos/{id}`へ正規化し、operationがIDごとに分裂しないようにしています。
 
+## シーケンス
+
+### ログイン
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Browser
+    participant Caddy
+    participant Backend
+    participant SQLite
+
+    User->>Browser: email / password を送信
+    Browser->>Caddy: POST /api/auth/login
+    Caddy->>Backend: reverse_proxy
+    Backend->>SQLite: ユーザー検索
+    Backend->>Backend: HMAC-SHA-256(pepper) + Argon2id 検証
+    Backend->>SQLite: セッショントークンのハッシュを保存
+    Backend-->>Caddy: Set-Cookie (access / refresh)
+    Caddy-->>Browser: 200 + Cookie
+    Browser->>Browser: /dashboard/ へ redirect
+```
+
+### 認証付き API と Refresh
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Browser
+    participant Caddy
+    participant Backend
+    participant SQLite
+
+    User->>Browser: Todo 操作
+    Browser->>Caddy: GET /api/todos (Cookie)
+    Caddy->>Backend: reverse_proxy + trace context
+    Backend->>SQLite: access token ハッシュでセッション検証
+    alt Access Token 有効
+        Backend->>SQLite: user_id 付きで Todo 取得
+        Backend-->>Browser: 200 Todo 一覧
+    else Access Token 期限切れ / 無効
+        Backend-->>Browser: 401
+        Browser->>Caddy: POST /api/auth/refresh (並行要求で一度だけ)
+        Caddy->>Backend: reverse_proxy
+        Backend->>SQLite: refresh token 検証とローテーション
+        alt Refresh 成功
+            Backend-->>Browser: 新しい Cookie
+            Browser->>Caddy: 元の GET /api/todos を再試行
+            Caddy->>Backend: reverse_proxy
+            Backend-->>Browser: 200 Todo 一覧
+        else Refresh も 401
+            Browser->>Browser: session cache 破棄、/ へ戻る
+        end
+    end
+```
+
+### admin 管理 UI
+
+```mermaid
+sequenceDiagram
+    actor Admin
+    participant Browser
+    participant Caddy
+    participant Backend
+    participant Gateway as Internal Caddy
+    participant UI as Jaeger / Prometheus / Grafana
+
+    Admin->>Browser: /jaeger/ などを開く
+    Browser->>Caddy: GET /jaeger/*
+    Caddy->>Backend: forward_auth /api/internal/admin-auth
+    alt 未認証
+        Backend-->>Caddy: 401
+        Caddy-->>Browser: 401
+    else 一般ユーザー
+        Backend-->>Caddy: 403
+        Caddy-->>Browser: 403
+    else admin
+        Backend-->>Caddy: 200
+        Caddy->>Gateway: reverse_proxy + 共有 secret
+        Gateway->>UI: 転送
+        UI-->>Browser: 管理 UI
+    end
+```
+
+### Browser telemetry
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant Caddy
+    participant Backend
+    participant Collector as OTel Collector
+    participant Alloy
+    participant Jaeger
+    participant Loki
+
+    Browser->>Caddy: POST /otel/v1/traces
+    Caddy->>Backend: forward_auth /api/internal/session-auth
+    Backend-->>Caddy: 200
+    Caddy->>Collector: OTLP/HTTP
+    Collector->>Jaeger: export traces
+
+    Browser->>Caddy: POST /faro/collect
+    Caddy->>Backend: forward_auth /api/internal/session-auth
+    Backend-->>Caddy: 200
+    Caddy->>Alloy: Faro event
+    Alloy->>Loki: push logs
+```
+
 ## ディレクトリ
 
 ```text
