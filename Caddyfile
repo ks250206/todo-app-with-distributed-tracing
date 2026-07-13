@@ -71,6 +71,19 @@ https://localhost {
 		}
 	}
 
+	@frontend_document {
+		method GET HEAD
+		path / /dashboard /dashboard/*
+	}
+	handle @frontend_document {
+		tracing {
+			span caddy.frontend
+		}
+		root * {$FRONTEND_DIST:./frontend/dist}
+		try_files {path} /index.html
+		file_server
+	}
+
 	handle {
 		root * {$FRONTEND_DIST:./frontend/dist}
 		try_files {path} /index.html

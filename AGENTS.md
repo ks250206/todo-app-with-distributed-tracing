@@ -93,7 +93,7 @@ Frontendのpackage managerはpnpmですが、操作にはVite Plusの`vp` comman
 - BackendのHTTP、認証、Todo use caseのtraceを維持する。
 - Frontendのfetch instrumentationと主要mutation spanを維持する。
 - Browser traceは同一originの`/otel/v1/traces`へ送る。
-- Caddy tracingは`/api/*`だけへ適用し、静的asset、`/otel/*`、`/faro/*`、管理UIをtraceしない。CaddyはW3C trace contextをBackendへ伝播する。
+- Caddy tracingは`/api/*`とHTML/SPA navigationである`GET /`、`GET /dashboard/*`だけへ適用する。静的asset、`/otel/*`、`/faro/*`、管理UIをtraceしない。CaddyはW3C trace contextをBackendへ伝播する。
 - trace、span attribute、logへpassword、token、Cookie、pepper、個人情報を記録しない。
 - Caddy access logはJSON encode、request/response headerとquery parameterの削除、client IP maskを維持し、Collectorのfilelog receiverで収集する。
 - Caddy tracingのspan attributeにもpassword、token、Cookie、query parameter、個人情報を追加しない。Caddy access logの`traceID`／`spanID`はLokiからJaegerへ相関するため維持する。
