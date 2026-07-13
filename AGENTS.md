@@ -103,7 +103,7 @@ Frontendのpackage managerはpnpmですが、操作にはVite Plusの`vp` comman
 - `/faro/collect`自身もFrontend instrumentation対象から除外し、自己計装loopを防ぐ。
 - Jaeger Monitor用のspanmetrics pipelineとPrometheus scrape設定を壊さない。
 - Grafana datasource provisioningと、LokiからJaegerへ遷移するtrace derived fieldを壊さない。
-- `Edge Tasks Overview`はfile provisioningを正とし、UI上の変更だけで管理しない。panel queryを変更した場合は実際のPrometheus/Loki labelと照合する。
+- `Edge Tasks Overview`と`Edge Tasks Log Table`はfile provisioningを正とし、UI上の変更だけで管理しない。panel queryを変更した場合は実際のPrometheus/Loki labelと照合する。
 
 ## Integrated runtime
 
